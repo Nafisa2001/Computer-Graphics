@@ -1,0 +1,435 @@
+#include <GL/glut.h>
+#include <cmath>
+#include <ctime>
+#include <cstdlib>
+#include <string>
+#include <vector>
+#include <algorithm>
+
+// Game constants
+const int NUM_BIRDS = 5;
+const float EGG_RADIUS_X = 0.03f;
+const float EGG_RADIUS_Y = 0.05f;
+const float BIRD_BODY_RADIUS = 0.1f;
+const float BIRD_HEAD_RADIUS = 0.05f;
+const float BASKET_WIDTH = 0.3f;
+const float BASKET_HEIGHT = 0.2f;
+const float WIRE_HEIGHT = 0.4f;
+// Game state
+struct Egg {
+    float x, y;
+    bool active;
+    float speed;
+};
+
+struct Bird {
+    float x;
+    float flapOffset;
+    bool flapDirection;
+    float color[3]; // RGB color
+};
+
+std::vector<Bird> birds;
+Egg activeEgg;
+float basketX = 0.0f;
+int score = 0, lives = 3;
+bool gameOver = false;
+bool gamePaused = false;
+int level = 1;
+float gameSpeed = 1.0f;
+int frames = 0;
+
+// Utility functions
+void drawText(float x, float y, const std::string& text, void* font = GLUT_BITMAP_HELVETICA_18) {
+    glRasterPos2f(x, y);
+    for (char c : text)
+        glutBitmapCharacter(font, c);
+}
+
+void drawCircle(float cx, float cy, float radiusX, float radiusY, int segments = 100) {
+    glBegin(GL_POLYGON);
+    for (int i = 0; i < segments; ++i) {
+        float theta = 2.0f * 3.1416f * i / segments;
+        glVertex2f(cx + radiusX * cos(theta), cy + radiusY * sin(theta));
+    }
+    glEnd();
+}
+
+void drawOval(float cx, float cy, float radiusX, float radiusY, int segments = 100) {
+    glBegin(GL_POLYGON);
+    for (int i = 0; i < segments; ++i) {
+        float theta = 2.0f * 3.1416f * i / segments;
+        glVertex2f(cx + radiusX * cos(theta), cy + radiusY * sin(theta));
+    }
+    glEnd();
+}
+
+// Game objects
+void resetEgg(float birdX) {
+    activeEgg.x = birdX;
+    activeEgg.y = WIRE_HEIGHT - 0.05f;
+    activeEgg.active = true;
+    activeEgg.speed = 0.007f + (level * 0.001f);
+}
+
+void drawEgg() {
+    if (!activeEgg.active) return;
+
+    // White egg with shine
+    glColor3f(0.95f, 0.95f, 0.95f);
+    drawOval(activeEgg.x, activeEgg.y, EGG_RADIUS_X, EGG_RADIUS_Y);
+
+    // Egg shine
+    glColor3f(1.0f, 1.0f, 1.0f);
+    drawOval(activeEgg.x - 0.01f, activeEgg.y + 0.02f, EGG_RADIUS_X*0.3f, EGG_RADIUS_Y*0.3f);
+}
+
+void drawBird(float x, float flapOffset, const float color[3]) {
+    float y = WIRE_HEIGHT + flapOffset;
+
+    // Body
+    glColor3f(color[0], color[1], color[2]);
+    drawOval(x, y, BIRD_BODY_RADIUS, BIRD_BODY_RADIUS*0.7f);
+
+    // Head
+    glColor3f(color[0]*0.8f, color[1]*0.8f, color[2]*0.8f);
+    drawCircle(x, y + 0.08f + flapOffset*0.5f, BIRD_HEAD_RADIUS, BIRD_HEAD_RADIUS);
+
+    // Eye
+    glColor3f(1.0f, 1.0f, 1.0f);
+    drawCircle(x + 0.02f, y + 0.09f + flapOffset*0.5f, 0.01f, 0.01f);
+    glColor3f(0.0f, 0.0f, 0.0f);
+    drawCircle(x + 0.02f, y + 0.09f + flapOffset*0.5f, 0.005f, 0.005f);
+
+    // Beak
+    glColor3f(0.9f, 0.7f, 0.2f);
+    glBegin(GL_TRIANGLES);
+    glVertex2f(x + 0.04f, y + 0.07f + flapOffset*0.5f);
+    glVertex2f(x + 0.07f, y + 0.075f + flapOffset*0.5f);
+    glVertex2f(x + 0.04f, y + 0.06f + flapOffset*0.5f);
+    glEnd();
+
+    // Wings (smaller since they're perched)
+    glColor3f(color[0]*0.7f, color[1]*0.7f, color[2]*0.7f);
+    glBegin(GL_POLYGON);
+    glVertex2f(x - 0.06f, y);
+    glVertex2f(x - 0.09f, y - 0.04f - flapOffset*0.2f);
+    glVertex2f(x - 0.03f, y - 0.03f - flapOffset*0.1f);
+    glEnd();
+
+    glBegin(GL_POLYGON);
+    glVertex2f(x + 0.06f, y);
+    glVertex2f(x + 0.09f, y - 0.04f - flapOffset*0.2f);
+    glVertex2f(x + 0.03f, y - 0.03f - flapOffset*0.1f);
+    glEnd();
+
+    // Feet gripping the wire
+    glColor3f(0.9f, 0.7f, 0.2f);
+    glLineWidth(2.0f);
+    glBegin(GL_LINES);
+    glVertex2f(x - 0.03f, WIRE_HEIGHT - 0.02f);
+    glVertex2f(x - 0.05f, WIRE_HEIGHT - 0.05f);
+    glVertex2f(x + 0.03f, WIRE_HEIGHT - 0.02f);
+    glVertex2f(x + 0.05f, WIRE_HEIGHT - 0.05f);
+    glEnd();
+}
+
+void drawWire() {
+    // Wire
+    glColor3f(0.3f, 0.2f, 0.1f);
+    glLineWidth(3.0f);
+    glBegin(GL_LINES);
+    glVertex2f(-1.0f, WIRE_HEIGHT);
+    glVertex2f(1.0f, WIRE_HEIGHT);
+    glEnd();
+
+    // Wire poles
+    glColor3f(0.4f, 0.3f, 0.2f);
+    for (int i = 0; i < 2; i++) {
+        float poleX = -1.0f + i * 2.0f;
+        glBegin(GL_QUADS);
+        glVertex2f(poleX - 0.03f, WIRE_HEIGHT);
+        glVertex2f(poleX + 0.03f, WIRE_HEIGHT);
+        glVertex2f(poleX + 0.03f, -0.5f);
+        glVertex2f(poleX - 0.03f, -0.5f);
+        glEnd();
+    }
+}
+
+void drawEnvironment() {
+    // Sky gradient
+    glBegin(GL_QUADS);
+    glColor3f(0.5f, 0.8f, 1.0f); // Top color
+    glVertex2f(-1.0f, 1.0f);
+    glVertex2f(1.0f, 1.0f);
+    glColor3f(0.8f, 0.95f, 1.0f); // Bottom color
+    glVertex2f(1.0f, -1.0f);
+    glVertex2f(-1.0f, -1.0f);
+    glEnd();
+
+    // Ground with grass
+    glColor3f(0.3f, 0.7f, 0.3f);
+    glBegin(GL_QUADS);
+    glVertex2f(-1.0f, -1.0f);
+    glVertex2f(1.0f, -1.0f);
+    glVertex2f(1.0f, -0.85f);
+    glVertex2f(-1.0f, -0.85f);
+    glEnd();
+
+    // Grass details
+    glColor3f(0.2f, 0.6f, 0.2f);
+    glLineWidth(1.0f);
+    for (int i = 0; i < 100; i++) {
+        float x = -1.0f + i * 0.02f;
+        glBegin(GL_LINES);
+        glVertex2f(x, -0.85f);
+        glVertex2f(x + (rand()%100)*0.002f - 0.1f, -0.8f + (rand()%100)*0.001f);
+        glEnd();
+    }
+}
+
+void drawBasket() {
+    // Basket main body
+    glColor3f(0.7f, 0.5f, 0.3f);
+    glBegin(GL_POLYGON);
+    glVertex2f(basketX - 0.15f, -0.9f);
+    glVertex2f(basketX + 0.15f, -0.9f);
+    glVertex2f(basketX + 0.12f, -0.7f);
+    glVertex2f(basketX - 0.12f, -0.7f);
+    glEnd();
+
+    // Basket rim
+    glColor3f(0.6f, 0.4f, 0.2f);
+    glLineWidth(3.0f);
+    glBegin(GL_LINE_LOOP);
+    glVertex2f(basketX - 0.15f, -0.9f);
+    glVertex2f(basketX + 0.15f, -0.9f);
+    glVertex2f(basketX + 0.12f, -0.7f);
+    glVertex2f(basketX - 0.12f, -0.7f);
+    glEnd();
+
+    // Basket handle
+    glBegin(GL_LINE_STRIP);
+    for (int i = 0; i <= 20; i++) {
+        float t = (float)i / 20.0f;
+        float x = basketX - 0.1f + t * 0.2f;
+        float y = -0.7f + 0.05f * sin(t * 3.1416f);
+        glVertex2f(x, y);
+    }
+    glEnd();
+}
+
+void drawClouds() {
+    glColor3f(1.0f, 1.0f, 1.0f);
+    for (int i = 0; i < 3; i++) {
+        float x = -0.8f + i * 0.7f + fmod(frames * 0.001f, 2.0f);
+        float y = 0.7f - i * 0.2f;
+
+        drawCircle(x, y, 0.1f, 0.07f);
+        drawCircle(x + 0.08f, y + 0.03f, 0.08f, 0.06f);
+        drawCircle(x - 0.07f, y + 0.02f, 0.07f, 0.05f);
+        drawCircle(x + 0.12f, y - 0.02f, 0.06f, 0.05f);
+    }
+}
+
+// Game logic
+void updateBirds() {
+    for (auto& bird : birds) {
+        if (bird.flapDirection) {
+            bird.flapOffset += 0.001f * gameSpeed;
+            if (bird.flapOffset > 0.02f) bird.flapDirection = false;
+        } else {
+            bird.flapOffset -= 0.001f * gameSpeed;
+            if (bird.flapOffset < -0.02f) bird.flapDirection = true;
+        }
+    }
+}
+
+void spawnEgg() {
+    if (!activeEgg.active && rand() % 100 < (2 + level * 0.5)) {
+        int randomBird = rand() % NUM_BIRDS;
+        resetEgg(birds[randomBird].x);
+    }
+}
+
+void updateEgg() {
+    if (activeEgg.active) {
+        activeEgg.y -= activeEgg.speed * gameSpeed;
+
+        // Check if egg caught in basket
+        if (activeEgg.y <= -0.85f && activeEgg.x >= basketX - 0.15f && activeEgg.x <= basketX + 0.15f) {
+            score++;
+            if (score % 5 == 0) {
+                level++;
+                gameSpeed += 0.1f;
+            }
+            activeEgg.active = false;
+        }
+
+        // Check if egg missed
+        if (activeEgg.y < -1.0f) {
+            lives--;
+            if (lives <= 0) {
+                gameOver = true;
+            }
+            activeEgg.active = false;
+        }
+    }
+}
+
+void display() {
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    drawEnvironment();
+    drawClouds();
+    drawWire();
+
+    if (gameOver) {
+        glColor3f(0.8f, 0.1f, 0.1f);
+        drawText(-0.25f, 0.1f, "GAME OVER", GLUT_BITMAP_TIMES_ROMAN_24);
+        glColor3f(1.0f, 1.0f, 1.0f);
+        drawText(-0.3f, -0.05f, "Final Score: " + std::to_string(score));
+        drawText(-0.35f, -0.15f, "Level Reached: " + std::to_string(level));
+        drawText(-0.4f, -0.3f, "Press 'R' to Play Again");
+    } else if (gamePaused) {
+        glColor3f(0.2f, 0.2f, 0.8f);
+        drawText(-0.2f, 0.1f, "PAUSED", GLUT_BITMAP_TIMES_ROMAN_24);
+        glColor3f(1.0f, 1.0f, 1.0f);
+        drawText(-0.4f, -0.1f, "Press 'P' to Resume");
+    } else {
+        for (auto& bird : birds)
+            drawBird(bird.x, bird.flapOffset, bird.color);
+        drawEgg();
+        drawBasket();
+
+        // HUD
+        glColor3f(0.0f, 0.0f, 0.0f);
+        drawText(-0.95f, 0.9f, "Score: " + std::to_string(score));
+        drawText(-0.95f, 0.85f, "Level: " + std::to_string(level));
+        drawText(0.7f, 0.9f, "Lives: " + std::to_string(lives));
+
+        // Instructions
+        if (frames < 300) { // Show for first 5 seconds
+            glColor3f(0.0f, 0.0f, 0.0f);
+            drawText(-0.9f, -0.7f, "Use LEFT/RIGHT arrows to move basket");
+            drawText(-0.9f, -0.75f, "Catch the white eggs!");
+            drawText(-0.9f, -0.8f, "Press 'P' to pause");
+        }
+    }
+
+    glutSwapBuffers();
+}
+
+void timer(int) {
+    if (!gameOver && !gamePaused) {
+        frames++;
+        updateBirds();
+        spawnEgg();
+        updateEgg();
+        glutPostRedisplay();
+    }
+    glutTimerFunc(16, timer, 0); // ~60fps
+}
+
+void keyboard(int key, int, int) {
+    if (!gameOver && !gamePaused) {
+        switch (key) {
+            case GLUT_KEY_LEFT:
+                if (basketX > -0.9f) basketX -= 0.05f * gameSpeed;
+                break;
+            case GLUT_KEY_RIGHT:
+                if (basketX < 0.9f) basketX += 0.05f * gameSpeed;
+                break;
+        }
+    }
+    glutPostRedisplay();
+}
+
+void normalKeys(unsigned char key, int, int) {
+    switch (tolower(key)) {
+        case 'r': // Restart game
+            if (gameOver) {
+                score = 0;
+                lives = 3;
+                level = 1;
+                gameOver = false;
+                gamePaused = false;
+                gameSpeed = 1.0f;
+                frames = 0;
+
+                birds.clear();
+
+                // Create colorful birds
+                float colors[5][3] = {
+                    {0.8f, 0.2f, 0.2f}, // Red
+                    {0.2f, 0.2f, 0.8f}, // Blue
+                    {0.2f, 0.8f, 0.2f}, // Green
+                    {0.8f, 0.8f, 0.2f}, // Yellow
+                    {0.8f, 0.2f, 0.8f}  // Purple
+                };
+
+                for (int i = 0; i < NUM_BIRDS; ++i) {
+                    Bird b;
+                    b.x = -0.8f + i * 0.4f;
+                    b.flapOffset = 0.0f;
+                    b.flapDirection = true;
+                    b.color[0] = colors[i][0];
+                    b.color[1] = colors[i][1];
+                    b.color[2] = colors[i][2];
+                    birds.push_back(b);
+                }
+
+                activeEgg.active = false;
+            }
+            break;
+
+        case 'p': // Pause/resume game
+            if (!gameOver) {
+                gamePaused = !gamePaused;
+            }
+            break;
+    }
+    glutPostRedisplay();
+}
+
+void initGame() {
+    glClearColor(0.5f, 0.8f, 1.0f, 1.0f);
+    glMatrixMode(GL_PROJECTION);
+    gluOrtho2D(-1, 1, -1, 1);
+    srand(time(NULL));
+
+    // Create colorful birds
+    float colors[5][3] = {
+        {0.8f, 0.2f, 0.2f}, // Red
+        {0.2f, 0.2f, 0.8f}, // Blue
+        {0.2f, 0.8f, 0.2f}, // Green
+        {0.8f, 0.8f, 0.2f}, // Yellow
+        {0.8f, 0.2f, 0.8f}  // Purple
+    };
+
+    for (int i = 0; i < NUM_BIRDS; ++i) {
+        Bird b;
+        b.x = -0.8f + i * 0.4f;
+        b.flapOffset = 0.0f;
+        b.flapDirection = true;
+        b.color[0] = colors[i][0];
+        b.color[1] = colors[i][1];
+        b.color[2] = colors[i][2];
+        birds.push_back(b);
+    }
+    activeEgg.active = false;
+}
+
+int main(int argc, char** argv) {
+    glutInit(&argc, argv);
+    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB);
+    glutInitWindowSize(800, 800);
+    glutCreateWindow("Egg Catching Game - Birds on a Wire");
+    initGame();
+    glutDisplayFunc(display);
+    glutSpecialFunc(keyboard);
+    glutKeyboardFunc(normalKeys);
+    glutTimerFunc(0, timer, 0);
+    glutMainLoop();
+    return 0;
+}
