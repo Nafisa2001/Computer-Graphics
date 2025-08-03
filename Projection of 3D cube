@@ -1,0 +1,86 @@
+#include <GL/glut.h>
+bool usePerspective = true;
+void init() {
+ glEnable(GL_DEPTH_TEST);
+ glClearColor(0, 0, 0, 1);
+}
+void display() {
+ glClear(GL_COLOR_BUFFER_BIT |
+GL_DEPTH_BUFFER_BIT);
+ glLoadIdentity();
+ glTranslatef(0.0f, 0.0f, -
+5.0f);
+ glRotatef(25, 1, 1, 0);
+ glBegin(GL_QUADS);
+ // Front face – orange
+ glColor3f(1.0, 0.5, 0.0);
+ glVertex3f(1,1,1);
+glVertex3f(-1,1,1);
+ glVertex3f(-1,-1,1);
+glVertex3f(1,-1,1);
+ // Back face – teal
+ glColor3f(0.0, 0.5, 0.5);
+ glVertex3f(1,1,-1);
+glVertex3f(-1,1,-1);
+ glVertex3f(-1,-1,-1);
+glVertex3f(1,-1,-1);
+ // Top face – purple
+ glColor3f(0.5, 0.0, 0.5);
+ glVertex3f(1,1,-1);
+glVertex3f(-1,1,-1);
+ glVertex3f(-1,1,1);
+glVertex3f(1,1,1);
+ // Bottom face – olive
+ glColor3f(0.5, 0.5, 0.0);
+ glVertex3f(1,-1,1);
+glVertex3f(-1,-1,1);
+ glVertex3f(-1,-1,-1);
+glVertex3f(1,-1,-1);
+ // Right face – pink
+ glColor3f(1.0, 0.0, 0.5);
+ glVertex3f(1,1,-1);
+glVertex3f(1,1,1);
+ glVertex3f(1,-1,1);
+glVertex3f(1,-1,-1);
+// Left face – sky blue
+ glColor3f(0.0, 0.6, 1.0);
+ glVertex3f(-1,1,1);
+glVertex3f(-1,1,-1);
+ glVertex3f(-1,-1,-1);
+glVertex3f(-1,-1,1);
+ glEnd();
+ glutSwapBuffers();
+}
+void reshape(int w, int h) {
+ glViewport(0, 0, w, h);
+ glMatrixMode(GL_PROJECTION);
+ glLoadIdentity();
+ if (usePerspective)
+ gluPerspective(60.0,
+(float)w/h, 1.0, 100.0);
+ else
+ glOrtho(-2, 2, -2, 2, 1, 10);
+ glMatrixMode(GL_MODELVIEW);
+}
+void keyboard(unsigned char key, int x,
+int y) {
+ if (key == 'p' || key == 'P') {
+ usePerspective =
+!usePerspective;
+ glutPostRedisplay();
+ }
+}
+int main(int argc, char** argv) {
+ glutInit(&argc, argv);
+ glutInitDisplayMode(GLUT_DOUBLE |
+GLUT_RGB | GLUT_DEPTH);
+ glutInitWindowSize(600, 600);
+ glutCreateWindow("3D Cube Projection with Color");
+ init();
+ glutDisplayFunc(display);
+ glutReshapeFunc(reshape);
+ glutKeyboardFunc(keyboard);
+ glutMainLoop();
+ return 0;
+}
+
